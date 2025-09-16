@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>大同資工魚菜共生 — MQTT 遙控馬達 (Web)</title>
+  <!-- Paho MQTT over WebSocket -->
+  <script src="https://unpkg.com/paho-mqtt@1.1.0/paho-mqtt-min.js"></script>
+  <style>
+    :root {
+      --bg:#0f172a; /* slate-900 */
+      --card:#111827ee; /* gray-900 */
+      --accent:#10b981; /* emerald-500 */
+      --accent-2:#60a5fa; /* blue-400 */
+      --danger:#ef4444; /* red-500 */
+      --warn:#f59e0b; /* amber-500 */
+      --muted:#94a3b8; /* slate-400 */
+      --text:#e5e7eb;  /* gray-200 */
+      --btn:#1f2937; /* gray-800 */
+    }
+    html,body{height:100%;}
+    body{
+      background:linear-gradient(135deg,#0f172a 0%,#111827 100%);
+      color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, 'Helvetica Neue', Arial, 'Apple Color Emoji','Segoe UI Emoji';
+      margin:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      box-sizing:border-box;
+    }
+    .app{
+      width:min(920px,100%);
+      background:var(--card);
+      border:1px solid #1f2937;
+      border-radius:18px;
+      box-shadow: 0 10px 30px #0008, inset 0 1px 0 #fff1;
+      overflow:hidden;
+    }
+    .header{
+      padding:18px 22px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      background:#0b1220;
+      border-bottom:1px solid #1f2937;
+    }
+    .title{
+      font-size:20px;
+      font-weight:800;
+      letter-spacing:1px;
+    }
+    .badge{
+      font-size:12px;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#0b3b2d;
+      color:#9af3cf;
+      border:1px solid #14532d;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap:16px;
+      padding:18px;
+    }
+    @media (max-width: 920px){
+      .grid{grid-template-columns: 1fr;}
+    }
+    .card{
+      border:1px solid #1f2937;
+      border-radius:14px;
+      padding:16px;
+      background:#0c1425;
+    }
+    .card h3{margin:0 0 10px 0; font-size:16px; letter-spacing:.5px}
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    input, select{
+      background:#0d1b33;
+      border:1px solid #1f2a44;
+      color:var(--text);
+      border-radius:10px;
+      padding:10px 12px;
+      outline:none;
+      min-width: 0;
+    }
+    input::placeholder{color:#6b7280}
+    .grow{flex:1 1 160px}
+    .btn{
+      background:var(--btn);
+      border:1px solid #263040;
+      color:var(--text);
+      padding:10px 14px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:700;
+      transition: transform .05s ease, background .2s ease, border-color .2s ease;
+      user-select:none;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn-primary{background:#0b2a1f; border-color:#14532d}
+    .btn-primary.connected{background:#052e11; border-color:#16a34a; box-shadow:0 0 0 2px #16a34a33 inset}
+    .btn-danger{background:#2a0b0d; border-color:#7f1d1d}
+    .btn-warn{background:#2a210b; border-color:#854d0e}
+    .pill{
+      background:#0b1220;
+      border:1px dashed #1f2a44;
+      border-radius:12px;
+      padding:10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color:#cbd5e1;
+    }
+    .motor-grid{
+      display:grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap:10px;
+    }
+    @media (max-width: 560px){ .motor-grid{grid-template-columns: 1fr;} }
+    .motor{
+      border:1px solid #1f2937;
+      border-radius:12px;
+      padding:12px;
+      background:#0b1220;
+    }
+    .motor h4{margin:0 0 8px 0; font-size:14px; color:#cbd5e1; letter-spacing:.5px}
+    .motor .row{gap:8px}
+    .btn.ok{border-color:#14532d}
+    .btn.stop{border-color:#7f1d1d}
+    .status{
+      padding:6px 10px; border-radius:10px; font-weight:700; display:inline-flex; align-items:center; gap:8px;
+    }
+    .dot{width:8px; height:8px; border-radius:50%}
+    .ok{background:#10b981}
+    .bad{background:#ef4444}
+    .warn-dot{background:#f59e0b}
+    .log{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      height:210px;
+      overflow:auto;
+      background:#050a16;
+      border:1px solid #1f2937;
+      border-radius:10px;
+      padding:10px;
+      white-space: pre-wrap;
+    }
+    .footer{
+      padding:10px 16px;
+      font-size:12px;
+      color:var(--muted);
+      border-top:1px solid #1f2937;
+      background:#0b1220;
+    }
+    a{color:#93c5fd; text-decoration:none}
+    .hint{font-size:12px; color:#93c5fd}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="title">大同資工魚菜共生 · MQTT 控制面板</div>
+      <span id="stateBadge" class="badge">尚未連線</span>
+    </header>
+
+    <section class="grid">
+      <!-- Connection Card -->
+      <div class="card">
+        <h3>連線設定</h3>
+        <div class="row" style="margin-bottom:8px">
+          <input class="grow" id="host" placeholder="Broker 主機 (例如：broker.emqx.io 或 自家WS代理)" />
+          <input style="width:120px" id="port" placeholder="WS Port" value="8083" />
+          <input class="grow" id="clientId" placeholder="Client ID" />
+          <button id="btnConnect" class="btn btn-primary">MQTT 連線</button>
+        </div>
+        <div class="row">
+          <input class="grow" id="topic1" value="ttu_fish/motor1" />
+          <input class="grow" id="topic2" value="ttu_fish/motor2" />
+          <span class="pill">QoS 0 · Clean Session</span>
+        </div>
+        <p class="hint" style="margin:10px 0 0">
+          提示：瀏覽器必須連到支援 <b>WebSocket</b> 的 MQTT 伺服器（常見 WS 連接埠：<code>8083</code> 或 <code>9001</code>；非 1883）。
+        </p>
+      </div>
+
+      <!-- Status Card -->
+      <div class="card">
+        <h3>狀態</h3>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px">
+          <div class="status">
+            <span id="dot" class="dot bad"></span>
+            <span id="statusText">未連線</span>
+          </div>
+          <button id="btnClearLog" class="btn btn-warn">清空訊息</button>
+        </div>
+        <div id="log" class="log" style="margin-top:10px"></div>
+      </div>
+
+      <!-- Motor Controls -->
+      <div class="card">
+        <h3>馬達控制 — 馬達 #1</h3>
+        <div class="motor">
+          <h4>Topic：<code id="t1">ttu_fish/motor1</code></h4>
+          <div class="row">
+            <button id="m1Fwd"   class="btn ok">1號正轉</button>
+            <button id="m1Rev"   class="btn ok">1號反轉</button>
+            <button id="m1Toggle" class="btn ok">1號正反轉</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>馬達控制 — 馬達 #2</h3>
+        <div class="motor">
+          <h4>Topic：<code id="t2">ttu_fish/motor2</code></h4>
+          <div class="row">
+            <button id="m2Fwd"   class="btn ok">2號正轉</button>
+            <button id="m2Rev"   class="btn ok">2號反轉</button>
+            <button id="m2Toggle" class="btn ok">2號正反轉</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      互動式網頁版（對應 App Inventor 專案邏輯）。訊息定義：<code>1=正轉</code>、<code>2=反轉</code>、<code>3=正反轉</code>、<code>0=停止</code>。
+      訂閱 <code>ttu_fish/motor1</code> 與 <code>ttu_fish/motor2</code>，並在頁面底部顯示訊息。
+    </footer>
+  </main>
+
+<script>
+(function(){
+  // ===== Utilities =====
+  const $ = (sel) => document.querySelector(sel);
+  const logEl = $("#log");
+  function log(msg, type="info"){
+    const time = new Date().toLocaleTimeString();
+    const prefix = type==="err" ? "[ERR]" : (type==="ok" ? "[OK]" : "[LOG]");
+    logEl.textContent += `${time} ${prefix} ${msg}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function setConnUI(connected){
+    const badge = $("#stateBadge");
+    const dot = $("#dot");
+    const text = $("#statusText");
+    const btn = $("#btnConnect");
+    if(connected){
+      badge.textContent = "已連線";
+      badge.style.background = "#06351f";
+      badge.style.borderColor = "#16a34a";
+      $("#btnConnect").classList.add("connected");
+      dot.className = "dot ok";
+      text.textContent = "連線成功";
+      btn.textContent = "中斷連線";
+    }else{
+      badge.textContent = "尚未連線";
+      badge.style.background = "#3b0b12";
+      badge.style.borderColor = "#7f1d1d";
+      $("#btnConnect").classList.remove("connected");
+      dot.className = "dot bad";
+      text.textContent = "未連線";
+      btn.textContent = "MQTT 連線";
+    }
+  }
+  function setTopicLabels(){
+    $("#t1").textContent = $("#topic1").value || "ttu_fish/motor1";
+    $("#t2").textContent = $("#topic2").value || "ttu_fish/motor2";
+  }
+  $("#topic1").addEventListener("input", setTopicLabels);
+  $("#topic2").addEventListener("input", setTopicLabels);
+
+  // ===== MQTT via Paho (WebSocket) =====
+  let client = null;
+  let isConnected = false;
+
+  function connect(){
+    const host = $("#host").value.trim();
+    const port = parseInt($("#port").value.trim(),10);
+    const clientId = ($("#clientId").value.trim() || ("TTU_FISH_" + Math.random().toString(16).slice(2)));
+
+    if(!host || !port){
+      log("請輸入 Broker 主機與 WebSocket 連接埠", "err");
+      return;
+    }
+    log(`嘗試連線到 ws://${host}:${port} ...`);
+    client = new Paho.MQTT.Client(host, Number(port), "/mqtt", clientId);
+
+    client.onConnectionLost = (resp) => {
+      isConnected = false;
+      setConnUI(false);
+      log(`連線中斷：${resp.errorMessage || "未知原因"}`, "err");
+    };
+    client.onMessageArrived = (message) => {
+      log(`收到 (${message.destinationName}) → ${message.payloadString}`, "ok");
+      // 不做 UI 切換，單純顯示
+    };
+
+    const options = {
+      timeout: 6,
+      cleanSession: true,
+      useSSL: false,
+      onSuccess: () => {
+        isConnected = true;
+        setConnUI(true);
+        setTopicLabels();
+        log("連線成功", "ok");
+        // Subscribe topics (QoS 0) like AI2 project
+        const t1 = $("#topic1").value || "ttu_fish/motor1";
+        const t2 = $("#topic2").value || "ttu_fish/motor2";
+        client.subscribe(t1, {qos:0});
+        client.subscribe(t2, {qos:0});
+        log(`已訂閱：${t1}, ${t2}`);
+      },
+      onFailure: (e) => {
+        isConnected = false;
+        setConnUI(false);
+        log("連線失敗：" + (e.errorMessage || "未知錯誤"), "err");
+      }
+    };
+    client.connect(options);
+  }
+
+  function disconnect(){
+    if(client && isConnected){
+      client.disconnect();
+    }
+    isConnected = false;
+    setConnUI(false);
+    log("已中斷連線");
+  }
+
+  $("#btnConnect").addEventListener("click", () => {
+    if(isConnected){ disconnect(); } else { connect(); }
+  });
+  $("#btnClearLog").addEventListener("click", () => { logEl.textContent=""; });
+
+  // ===== Publish helpers (mirror AI2 behavior) =====
+  // AI2 app toggles button's label between 「X號正轉」與「X號停止」+ publish 1/0.
+  // Likewise for reverse (2/0) and toggle (3/0).
+  function publish(topic, payload){
+    if(!isConnected){ log("沒有成功連線 MQTT", "err"); return false; }
+    const msg = new Paho.MQTT.Message(String(payload));
+    msg.destinationName = topic;
+    client.send(msg);
+    log(`送出 (${topic}) ← ${payload}`, "ok");
+    return true;
+  }
+  function bindMotor(btnId, topicInput, startLabel, startPayload, stopLabel, stopPayload){
+    const btn = $(btnId);
+    btn.dataset.state = "idle";
+    const topicGetter = () => $(topicInput).value || (topicInput.includes("1") ? "ttu_fish/motor1" : "ttu_fish/motor2");
+
+    function setStart(){
+      btn.textContent = startLabel;
+      btn.classList.remove("stop");
+      btn.classList.add("ok");
+      btn.dataset.state = "idle";
+    }
+    function setStop(){
+      btn.textContent = stopLabel;
+      btn.classList.remove("ok");
+      btn.classList.add("stop");
+      btn.dataset.state = "running";
+    }
+    setStart();
+
+    btn.addEventListener("click", () => {
+      const topic = topicGetter();
+      if(btn.dataset.state === "idle"){
+        if(publish(topic, startPayload)){ setStop(); }
+      }else{
+        if(publish(topic, stopPayload)){ setStart(); }
+      }
+    });
+  }
+
+  // Motor 1
+  bindMotor("#m1Fwd",   "#topic1", "1號正轉", 1, "1號停止", 0);
+  bindMotor("#m1Rev",   "#topic1", "1號反轉", 2, "1號停止", 0);
+  bindMotor("#m1Toggle","#topic1", "1號正反轉", 3, "1號停止", 0);
+  // Motor 2
+  bindMotor("#m2Fwd",   "#topic2", "2號正轉", 1, "2號停止", 0);
+  bindMotor("#m2Rev",   "#topic2", "2號反轉", 2, "2號停止", 0);
+  bindMotor("#m2Toggle","#topic2", "2號正反轉", 3, "2號停止", 0);
+
+  // Prefill sensible defaults
+  $("#host").value = "broker.emqx.io"; // 可改為自家 WebSocket 代理 (例如 Nginx -> 1883)
+  $("#port").value = "8083";
+  $("#clientId").value = "TTU_FishWeb_" + Math.random().toString(16).slice(2,8);
+  setTopicLabels();
+})();
+</script>
+</body>
+</html>
